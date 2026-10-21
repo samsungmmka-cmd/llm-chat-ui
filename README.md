@@ -100,9 +100,15 @@ Common ports: vLLM `:8000/v1`, llama.cpp `:8080/v1`, Ollama `:11434/v1`, LM Stud
 ## Local development
 
 ```bash
-cp .env.example .env.local     # set LLM_UPSTREAM
+cp .env.example .env.local     # set LLM_UPSTREAM, e.g. http://192.168.1.20/llm/v1
 npm install
 npm run dev                    # http://localhost:5173 (Vite proxies /api to LLM_UPSTREAM)
+```
+
+The dev server prints `LLM proxy: /api -> …` on start so you can confirm the target.
+After changing `.env.local`, restart `npm run dev`.
+
+```
 ```
 
 ## Project structure
