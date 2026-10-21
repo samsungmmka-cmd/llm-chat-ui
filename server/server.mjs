@@ -15,6 +15,29 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const UPSTREAM = (process.env.LLM_UPSTREAM || '').replace(/\/+$/, '');
 const API_KEY = process.env.LLM_API_KEY || '';
 
+// Extra JSON merged into every /chat/completions request, e.g. to turn off
+// Qwen3 thinking:  LLM_EXTRA_BODY={"chat_template_kwargs":{"enable_thinking":false}}
+let EXTRA_BODY = null;
+if (process.env.LLM_EXTRA_BODY && process.env.LLM_EXTRA_BODY.trim()) {
+  try {
+    EXTRA_BODY = JSON.parse(process.env.LLM_EXTRA_BODY);
+    if (!EXTRA_BODY || typeof EXTRA_BODY !== 'object' || Array.isArray(EXTRA_BODY)) throw new Error('must be a JSON object');
+  } catch (e) {
+    console.error(`LLM_EXTRA_BODY ignored — invalid JSON: ${e.message}`);
+    EXTRA_BODY = null;
+  }
+}
+
+function mergeExtra(body, extra) {
+  const out = { ...body };
+  for (const [k, v] of Object.entries(extra)) {
+    out[k] = v && typeof v === 'object' && !Array.isArray(v) && out[k] && typeof out[k] === 'object'
+      ? { ...out[k], ...v }
+      : v;
+  }
+  return out;
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -82,6 +105,21 @@ function proxy(req, res) {
     } else res.destroy();
   });
   res.on('close', () => up.destroy()); // user pressed Stop
+  if (EXTRA_BODY && req.method === 'POST' && /\/chat\/completions\/?(\?|$)/.test(target.pathname + target.search)) {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      let payload = Buffer.concat(chunks);
+      try {
+        payload = Buffer.from(JSON.stringify(mergeExtra(JSON.parse(payload.toString('utf8')), EXTRA_BODY)));
+      } catch {
+        /* not JSON — forward unchanged */
+      }
+      up.setHeader('content-length', payload.length);
+      up.end(payload);
+    });
+    return;
+  }
   req.pipe(up);
 }
 
@@ -125,6 +163,7 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`llm-chat-ui listening on :${PORT}  (dist: ${DIST})`);
   console.log(UPSTREAM ? `proxying /api -> ${UPSTREAM}` : '/api not proxied here (handled by your reverse proxy)');
+  if (EXTRA_BODY) console.log(`adding to chat requests: ${JSON.stringify(EXTRA_BODY)}`);
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => server.close(() => process.exit(0)));

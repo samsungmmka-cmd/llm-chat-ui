@@ -86,6 +86,7 @@ docker run -d --name llm-chat-ui -p 3000:3000 llm-chat-ui
 | `PORT`          | `3000`                   | Port the container listens on. |
 | `LLM_UPSTREAM`  | *(unset)*                | Optional. If set, the container proxies `/api/*` here itself (include `/v1`). |
 | `LLM_API_KEY`   | *(unset)*                | Optional, with `LLM_UPSTREAM`. Added server-side, never sent to the browser. |
+| `LLM_EXTRA_BODY` | *(unset)*              | Optional JSON merged into every chat request, e.g. `{"chat_template_kwargs":{"enable_thinking":false}}` to turn off Qwen3 thinking. |
 
 All are read **at container start** — change and restart, no rebuild needed.
 
