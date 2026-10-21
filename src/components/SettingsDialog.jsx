@@ -67,8 +67,7 @@ export default function SettingsDialog() {
               spellCheck={false}
             />
             <small>
-              Keep <code>/api</code> to go through the built-in proxy (set <code>LLM_UPSTREAM</code> on the
-              container). A full URL calls the server directly from the browser and needs CORS enabled.
+              Keep <code>/api</code> when your reverse proxy (nginx) routes <code>/api/</code> to the LLM server. A full URL calls the server directly from the browser and needs CORS enabled.
             </small>
           </label>
           <label className="field">

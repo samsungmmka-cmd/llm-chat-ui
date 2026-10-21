@@ -25,66 +25,84 @@ If it rejects `stream_options`, the request is retried once without it.
 
 ## How the base URL works
 
-The browser calls **`/api`**. A proxy forwards `/api/*` to your LLM server:
+The container has **no nginx** — it runs a tiny dependency-free Node server (`server/server.mjs`) that serves
+the built app and `/config.js`. Your own nginx sits in front and routes `/api/` to the LLM server:
 
 ```
-browser ──► /api/chat/completions ──► nginx (container) ──► ${LLM_UPSTREAM}/chat/completions
+browser ─► your nginx ─┬─ /api/*  ─► LLM server  (http://<llm-host>:8000/v1/*)
+                       └─ /*      ─► llm-chat-ui container :3000
 ```
 
-This avoids CORS entirely and keeps an API key on the server. You only set **`LLM_UPSTREAM`**.
+### nginx config for your existing server
 
-> Alternatively, put a full URL (e.g. `http://192.168.1.20:8000/v1`) in **Settings → Base URL** and the
-> browser calls the server directly — that server must then allow CORS.
+```nginx
+# Static app
+location / {
+    proxy_pass http://127.0.0.1:3000;      # or http://llm-chat-ui:3000 on a Docker network
+    proxy_set_header Host $host;
+}
+
+# OpenAI-compatible API — note the trailing slashes: /api/models -> /v1/models
+location /api/ {
+    proxy_pass http://127.0.0.1:8000/v1/;  # your LLM server
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    # proxy_set_header Authorization "Bearer YOUR_KEY";   # if the LLM needs a key
+
+    # Required for token streaming (SSE)
+    proxy_buffering off;
+    proxy_cache off;
+    gzip off;
+    proxy_read_timeout 600s;
+}
+```
+
+Other options:
+- **Let the container proxy `/api` itself:** set `LLM_UPSTREAM` (and optionally `LLM_API_KEY`); then nginx only
+  needs `location / { proxy_pass http://127.0.0.1:3000; proxy_buffering off; }`.
+- **Call the LLM directly from the browser:** set `LLM_BASE_URL` (or *Settings → Base URL*) to a full URL like
+  `http://192.168.1.20:8000/v1` — the LLM server must then allow CORS.
 
 ## Run with Docker
 
-Edit `LLM_UPSTREAM` in `docker-compose.yml`, then:
-
 ```bash
-docker compose up -d --build
-# open http://localhost:3000
+docker compose up -d --build     # app on http://<host>:3000
 ```
 
 Or plain Docker:
 
 ```bash
 docker build -t llm-chat-ui .
-docker run -d --name llm-chat-ui -p 3000:80 \
-  --add-host=host.docker.internal:host-gateway \
-  -e LLM_UPSTREAM=http://host.docker.internal:8000/v1 \
-  llm-chat-ui
+docker run -d --name llm-chat-ui -p 3000:3000 llm-chat-ui
 ```
 
 ### Environment variables
 
-| Variable        | Default                                  | Purpose |
-|-----------------|------------------------------------------|---------|
-| `LLM_UPSTREAM`  | `http://host.docker.internal:8000/v1`    | Your OpenAI-compatible server **including `/v1`, no trailing slash**. |
-| `LLM_API_KEY`   | *(empty)*                                | Sent as `Authorization: Bearer …` by nginx. Never exposed to the browser. |
-| `DEFAULT_MODEL` | *(empty → first model)*                  | Model pre-selected on first visit. |
-| `LLM_BASE_URL`  | `/api`                                   | What the browser calls. Leave as `/api` unless you bypass the proxy. |
-| `APP_TITLE`     | `Lumen`                                  | Name shown in the UI. |
+| Variable        | Default                  | Purpose |
+|-----------------|--------------------------|---------|
+| `LLM_BASE_URL`  | `/api`                   | What the browser calls. Keep `/api` when nginx routes it. |
+| `DEFAULT_MODEL` | *(empty → first model)*  | Model pre-selected on first visit. |
+| `APP_TITLE`     | `Lumen`                  | Name shown in the UI. |
+| `PORT`          | `3000`                   | Port the container listens on. |
+| `LLM_UPSTREAM`  | *(unset)*                | Optional. If set, the container proxies `/api/*` here itself (include `/v1`). |
+| `LLM_API_KEY`   | *(unset)*                | Optional, with `LLM_UPSTREAM`. Added server-side, never sent to the browser. |
 
-All of these are read **at container start** — change them and restart, no rebuild needed.
+All are read **at container start** — change and restart, no rebuild needed.
 
 ### "localhost" inside Docker
 
-Inside the container, `localhost` is the container itself. Use:
+If you use `LLM_UPSTREAM`, remember `localhost` inside the container is the container itself. Use
+`http://host.docker.internal:<port>/v1` (plus `--add-host=host.docker.internal:host-gateway` on Linux) or the LLM
+container's service name on a shared Docker network. The LLM server must listen on `0.0.0.0`.
 
-- **LLM on the host machine** → `http://host.docker.internal:<port>/v1` (keep the `extra_hosts` / `--add-host` line on Linux)
-- **LLM in another container** → put both on the same Docker network and use its service name, e.g. `http://vllm:8000/v1`
-- Make sure the LLM server listens on `0.0.0.0`, not only `127.0.0.1`
-
-Common upstreams: vLLM `:8000/v1`, llama.cpp `:8080/v1`, Ollama `:11434/v1`, LM Studio `:1234/v1`.
-
-Note: nginx resolves the upstream hostname at start-up, so the container won't start if that host can't be resolved.
+Common ports: vLLM `:8000/v1`, llama.cpp `:8080/v1`, Ollama `:11434/v1`, LM Studio `:1234/v1`.
 
 ## Local development
 
 ```bash
 cp .env.example .env.local     # set LLM_UPSTREAM
 npm install
-npm run dev                    # http://localhost:5173 (Vite proxies /api like nginx does)
+npm run dev                    # http://localhost:5173 (Vite proxies /api to LLM_UPSTREAM)
 ```
 
 ## Project structure
@@ -100,6 +118,5 @@ src/
   lib/api.js                OpenAI-compatible client (models, streaming SSE)
   lib/tokens.js             usage totals, formatting, fallback estimate
   lib/config.js             runtime config + localStorage settings
-nginx/default.conf.template  SPA + /api proxy (SSE-friendly)
-docker/40-app-config.sh      writes /config.js from env at start-up
+server/server.mjs           production server: static files, /config.js, optional /api proxy
 ```

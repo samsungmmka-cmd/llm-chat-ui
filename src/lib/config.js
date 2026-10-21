@@ -6,7 +6,7 @@ const runtime = (typeof window !== 'undefined' && window.__APP_CONFIG__) || {};
 export const APP_TITLE = runtime.APP_TITLE || 'Lumen';
 
 export const DEFAULT_SETTINGS = {
-  // '/api' goes through the nginx (or Vite dev) proxy -> your LLM server.
+  // '/api' goes through your reverse proxy (or the Vite dev proxy) -> your LLM server.
   // You can also put a full URL here, e.g. http://localhost:8000/v1 (server must allow CORS).
   baseUrl: runtime.LLM_BASE_URL || '/api',
   apiKey: '',
