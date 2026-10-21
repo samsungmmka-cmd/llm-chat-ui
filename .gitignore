@@ -2,3 +2,7 @@ node_modules
 dist
 .env.local
 *.log
+
+# Machine-specific settings and secrets (never commit)
+.env
+docker-compose.override.yml
