@@ -1,10 +1,23 @@
-import { memo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { AlertCircle, ArrowDownRight, ArrowUpRight, Check, Copy, Gauge, RotateCcw, Sigma, Timer } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowDownRight,
+  ArrowUpRight,
+  Brain,
+  Check,
+  ChevronDown,
+  Copy,
+  Gauge,
+  RotateCcw,
+  Sigma,
+  Timer,
+} from 'lucide-react';
 import Logo from './Logo.jsx';
 import { fmt } from '../lib/tokens.js';
+import { splitThinking } from '../lib/thinking.js';
 
 function useCopy() {
   const [copied, setCopied] = useState(false);
@@ -100,6 +113,60 @@ function UsageBar({ m }) {
   );
 }
 
+function formatSecs(ms) {
+  const s = Math.max(0, ms) / 1000;
+  if (s < 10) return `${s.toFixed(1)}s`;
+  if (s < 60) return `${Math.round(s)}s`;
+  return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+}
+
+function ThinkingSection({ text, active, startedAt, thinkingMs }) {
+  // null = follow the automatic behaviour (open while thinking, closed after)
+  const [userOpen, setUserOpen] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  const bodyRef = useRef(null);
+  const open = userOpen ?? active;
+
+  // Live timer while thinking
+  useEffect(() => {
+    if (!active) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [active]);
+
+  // Keep the newest thought in view while it streams
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (open && active && el) el.scrollTop = el.scrollHeight;
+  }, [text, open, active]);
+
+  let label;
+  if (active) label = `Thinking${startedAt ? ` · ${formatSecs(now - startedAt)}` : '…'}`;
+  else label = thinkingMs != null ? `Thought for ${formatSecs(thinkingMs)}` : 'Thought process';
+
+  return (
+    <div className={`thinking${open ? ' is-open' : ''}${active ? ' is-active' : ''}`}>
+      <button
+        type="button"
+        className="thinking__head"
+        onClick={() => setUserOpen(!open)}
+        aria-expanded={open}
+        title={open ? 'Hide thinking' : 'Show thinking'}
+      >
+        <Brain size={15} className="thinking__icon" />
+        <span className="thinking__label">{label}</span>
+        <span className="thinking__toggle">{open ? 'Hide' : 'Show'}</span>
+        <ChevronDown size={15} className="thinking__chev" />
+      </button>
+      {open && (
+        <div className="thinking__body" ref={bodyRef}>
+          {text || <span className="muted">…</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Message({ m, onRetry, isLast }) {
   const [copied, copy] = useCopy();
 
@@ -111,7 +178,9 @@ function Message({ m, onRetry, isLast }) {
     );
   }
 
-  const thinkingOnly = m.pending && !m.content;
+  const { thinking, answer, inProgress } = splitThinking(m.content, m.reasoning);
+  const thinkingActive = !!m.pending && (inProgress || (!!thinking && !answer));
+  const showDots = m.pending && !thinking && !answer && !inProgress;
 
   return (
     <div className={`msg msg--assistant${m.error ? ' msg--error' : ''}`}>
@@ -119,14 +188,16 @@ function Message({ m, onRetry, isLast }) {
         <Logo size={22} spinning={m.pending} />
       </div>
       <div className="msg__body">
-        {m.reasoning && (
-          <details className="reasoning" open={m.pending && !m.content}>
-            <summary>{m.pending && !m.content ? 'Thinking…' : 'Thought process'}</summary>
-            <div className="reasoning__text">{m.reasoning}</div>
-          </details>
+        {(thinking || inProgress) && (
+          <ThinkingSection
+            text={thinking}
+            active={thinkingActive}
+            startedAt={m.startedAt}
+            thinkingMs={m.thinkingMs}
+          />
         )}
 
-        {thinkingOnly && !m.reasoning && (
+        {showDots && (
           <div className="typing" aria-label="Generating">
             <span />
             <span />
@@ -134,9 +205,9 @@ function Message({ m, onRetry, isLast }) {
           </div>
         )}
 
-        {m.content && (
+        {answer && (
           <div className={`md${m.pending ? ' is-streaming' : ''}`}>
-            <Markdown text={m.content} />
+            <Markdown text={answer} />
           </div>
         )}
 
@@ -153,8 +224,8 @@ function Message({ m, onRetry, isLast }) {
         {!m.pending && (
           <div className="msg__footer">
             <div className="msg__actions">
-              {m.content && (
-                <button type="button" className="icon-btn icon-btn--sm" onClick={() => copy(m.content)} title="Copy">
+              {answer && (
+                <button type="button" className="icon-btn icon-btn--sm" onClick={() => copy(answer)} title="Copy answer">
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                 </button>
               )}

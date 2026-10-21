@@ -8,6 +8,7 @@ import Logo from '../components/Logo.jsx';
 import { chatCompletion } from '../lib/api.js';
 import { APP_TITLE } from '../lib/config.js';
 import { estimateMessages, estimateTokens, fmt, fmtCompact, sumUsage } from '../lib/tokens.js';
+import { answerOnly, splitThinking } from '../lib/thinking.js';
 
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -83,10 +84,12 @@ export default function Chat() {
       const userMsg = { id: uid(), role: 'user', content };
       const asstId = uid();
       const started = Date.now();
-      const asstMsg = { id: asstId, role: 'assistant', content: '', reasoning: '', pending: true, model };
+      const asstMsg = { id: asstId, role: 'assistant', content: '', reasoning: '', pending: true, model, startedAt: started };
 
-      // History sent to the API: skip failed/empty assistant turns
-      const history = [...baseHistory, userMsg].filter((m) => !(m.role === 'assistant' && !m.content));
+      // History sent to the API: answers only (no thinking), skip failed/empty assistant turns
+      const history = [...baseHistory, userMsg]
+        .map((m) => (m.role === 'assistant' ? { ...m, content: answerOnly(m.content) } : m))
+        .filter((m) => !(m.role === 'assistant' && !m.content));
       const apiMessages = [
         ...(settings.systemPrompt?.trim() ? [{ role: 'system', content: settings.systemPrompt.trim() }] : []),
         ...history.map(({ role, content }) => ({ role, content })),
@@ -110,9 +113,14 @@ export default function Chat() {
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       let firstTokenAt = null;
+      let accContent = '';
+      let accReasoning = '';
+      let thinkEndAt = null; // when the first answer text arrived after thinking
 
       const finish = (extra, content, reasoning) => {
         const end = Date.now();
+        const { thinking } = splitThinking(content, reasoning);
+        const thinkingMs = thinking && firstTokenAt ? (thinkEndAt || end) - firstTokenAt : null;
         let usage = extra.usage;
         let estimated = false;
         if (!usage && (content || reasoning)) {
@@ -126,6 +134,7 @@ export default function Chat() {
           estimated,
           durationMs: end - started,
           firstTokenMs: firstTokenAt ? firstTokenAt - started : null,
+          thinkingMs,
         };
       };
 
@@ -136,6 +145,12 @@ export default function Chat() {
           signal: ctrl.signal,
           onDelta: ({ content: c, reasoning: r }) => {
             if (firstTokenAt == null) firstTokenAt = Date.now();
+            accContent += c;
+            accReasoning += r;
+            if (thinkEndAt == null) {
+              const s = splitThinking(accContent, accReasoning);
+              if (s.thinking && s.answer && !s.inProgress) thinkEndAt = Date.now();
+            }
             updateMsg(asstId, (m) => ({ ...m, content: m.content + c, reasoning: (m.reasoning || '') + r }));
           },
         });
