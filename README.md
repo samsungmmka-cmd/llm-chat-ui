@@ -108,9 +108,6 @@ npm run dev                    # http://localhost:5173 (Vite proxies /api to LLM
 The dev server prints `LLM proxy: /api -> …` on start so you can confirm the target.
 After changing `.env.local`, restart `npm run dev`.
 
-```
-```
-
 ## Project structure
 
 ```
