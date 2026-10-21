@@ -73,8 +73,10 @@ function proxy(req, res) {
   });
   up.setTimeout(10 * 60 * 1000, () => up.destroy(new Error('upstream timeout')));
   up.on('error', (e) => {
+    const reason = e.code || e.message || (e.errors && e.errors[0]?.code) || 'unknown';
+    console.error(`[proxy] ${req.method} ${req.url} -> ${target.href} failed: ${reason}`);
     if (!res.headersSent) {
-      send(res, 502, JSON.stringify({ error: { message: `Upstream error: ${e.message}` } }), {
+      send(res, 502, JSON.stringify({ error: { message: `Upstream error: ${reason} (${target.href})` } }), {
         'Content-Type': 'application/json',
       });
     } else res.destroy();
