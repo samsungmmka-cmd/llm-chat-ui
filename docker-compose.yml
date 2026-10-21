@@ -6,12 +6,12 @@ services:
     ports:
       - "3000:3000"          # point your nginx at this port
     environment:
-      LLM_BASE_URL: /api     # what the browser calls (your nginx routes /api to the LLM)
+      LLM_BASE_URL: /api     # what the browser calls
       DEFAULT_MODEL: ""
       APP_TITLE: Lumen
-      # Optional — only if your nginx does NOT route /api to the LLM:
-      # LLM_UPSTREAM: http://host.docker.internal:8000/v1
-      # LLM_API_KEY: ""
+      # The container proxies /api to OpenAI and adds the key server-side.
+      LLM_UPSTREAM: https://api.openai.com/v1
+      LLM_API_KEY: ${OPENAI_API_KEY:-}   # export OPENAI_API_KEY before `docker compose up`
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"   # needed on Linux when using LLM_UPSTREAM to the host
     restart: unless-stopped
