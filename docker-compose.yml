@@ -1,0 +1,19 @@
+services:
+  llm-chat-ui:
+    build: .
+    image: llm-chat-ui:latest
+    container_name: llm-chat-ui
+    ports:
+      - "3000:80"
+    environment:
+      # Your OpenAI-compatible server, including /v1 (no trailing slash).
+      # host.docker.internal = the Docker host, i.e. "localhost" from the container's point of view.
+      LLM_UPSTREAM: http://host.docker.internal:8000/v1
+      # If the LLM runs in another container on the same network, use its service name instead:
+      # LLM_UPSTREAM: http://vllm:8000/v1
+      LLM_API_KEY: ""
+      DEFAULT_MODEL: ""
+      APP_TITLE: Lumen
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # needed on Linux
+    restart: unless-stopped

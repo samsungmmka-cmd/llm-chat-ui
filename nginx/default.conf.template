@@ -1,0 +1,61 @@
+# Rendered at container start by the nginx image (envsubst on defined env vars only).
+
+# Use the browser's Authorization header if it sent one, otherwise the server-side key.
+map $http_authorization $llm_auth {
+    ""      "Bearer ${LLM_API_KEY}";
+    default $http_authorization;
+}
+
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 20m;
+
+    # ---- OpenAI-compatible API proxy: /api/* -> ${LLM_UPSTREAM}/* ----
+    location /api/ {
+        proxy_pass ${LLM_UPSTREAM}/;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization $llm_auth;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_ssl_server_name on;
+
+        # Streaming (SSE): don't buffer, allow long generations
+        proxy_buffering off;
+        proxy_cache off;
+        gzip off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        add_header X-Accel-Buffering no;
+    }
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Runtime config must never be cached
+    location = /config.js {
+        add_header Cache-Control "no-store";
+    }
+
+    # Hashed build assets can be cached forever
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    # SPA fallback for client-side routes (/chat, …)
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ /index.html;
+    }
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+}
